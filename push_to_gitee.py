@@ -90,6 +90,7 @@ def main():
     ap.add_argument("--name", default=DEFAULT_NAME, help="仓库名")
     ap.add_argument("--public", action="store_true", help="公开仓库（默认私有）")
     ap.add_argument("--desc", default=DEFAULT_DESC, help="仓库描述")
+    ap.add_argument("--owner", default="", help="Gitee 用户名；无法自动推断时手动指定")
     a = ap.parse_args()
 
     token = get_token()
@@ -98,12 +99,22 @@ def main():
         return 2
 
     log("[1/5] 校验令牌并获取账号 …")
-    code, me = api("GET", "/user", token=token)
-    if code != 200 or not me.get("login"):
-        log("✗ 令牌无效或权限不足：HTTP %s %s" % (code, me.get("message") or me.get("error") or me))
+    owner = a.owner.strip()
+    if not owner:
+        code, me = api("GET", "/user", token=token)
+        if code == 200 and me.get("login"):
+            owner = me["login"]
+            log("    账号：%s（%s）" % (owner, me.get("name") or "-"))
+        else:
+            # 只勾 projects 权限的令牌可能读不了 /user，改从仓库列表推断
+            log("    ! /user 不可用（HTTP %s），改从仓库列表推断账号 …" % code)
+            code2, repos = api("GET", "/user/repos?per_page=1", token=token)
+            if code2 == 200 and isinstance(repos, list) and repos:
+                owner = (repos[0].get("full_name") or "/").split("/")[0]
+                log("    账号：%s（由仓库列表推断）" % owner)
+    if not owner:
+        log("✗ 令牌无效，或无法自动获取用户名。请用 --owner 你的用户名 指定，或给令牌补上 user_info 权限。")
         return 3
-    owner = me["login"]
-    log("    账号：%s（%s）" % (owner, me.get("name") or "-"))
 
     repo = a.name
     private = not a.public
